@@ -4,11 +4,17 @@ import asyncio
 class AsyncContextManager:
     """Context manager for async dependencies"""
 
-    def __init__(self, value, generator=None):
+    def __init__(self, value=None, generator=None, initializer=None):
         self.value = value
         self.generator = generator
+        self._initializer = initializer
 
     async def __aenter__(self):
+        # - Lazy initialization if initializer provided
+
+        if self._initializer:
+            self.value, self.generator = await self._initializer()
+
         return self.value
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):

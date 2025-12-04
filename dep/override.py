@@ -24,7 +24,7 @@ def test():
 
     from dep._dep import dep
 
-    @dep(cached=True)
+    @dep()
     def get_foo(bar: str):
         yield bar
 

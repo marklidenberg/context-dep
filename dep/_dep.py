@@ -56,36 +56,39 @@ def dep(cached: bool = True):
                 raise RuntimeError(f"{func.__name__} did not yield a value")
 
         @wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            # - Resolve target function
+        def async_wrapper(*args, **kwargs):
+            async def _initializer():
+                # - Resolve target function
 
-            target_func = _overrides.get(func, func)
+                target_func = _overrides.get(func, func)
 
-            # - Build cache key
+                # - Build cache key
 
-            cache_key = (target_func, args, tuple(sorted(kwargs.items())))
+                cache_key = (target_func, args, tuple(sorted(kwargs.items())))
 
-            # - Check cache if enabled
+                # - Check cache if enabled
 
-            if cached and cache_key in _cache:
-                return AsyncContextManager(_cache[cache_key])
+                if cached and cache_key in _cache:
+                    return _cache[cache_key], None
 
-            # - Execute function and get result
+                # - Execute function and get result
 
-            result_gen = target_func(*args, **kwargs)
+                result_gen = target_func(*args, **kwargs)
 
-            # - Extract yielded value
+                # - Extract yielded value
 
-            try:
-                result = await result_gen.__anext__()
+                try:
+                    result = await result_gen.__anext__()
 
-                if cached:
-                    _cache[cache_key] = result
+                    if cached:
+                        _cache[cache_key] = result
 
-                return AsyncContextManager(result, result_gen)
+                    return result, result_gen
 
-            except StopAsyncIteration:
-                raise RuntimeError(f"{func.__name__} did not yield a value")
+                except StopAsyncIteration:
+                    raise RuntimeError(f"{func.__name__} did not yield a value")
+
+            return AsyncContextManager(initializer=_initializer)
 
         # - Determine wrapper type based on function type
 
