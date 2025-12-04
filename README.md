@@ -7,27 +7,23 @@ Embarassingly simple Python dependency injection.
 ```python
 from dep import dep, override
 
-# - Basic example 
+# - Basic example
 
 @dep()
-def get_db():
-    db = Database()
-    yield db
-    db.close()
+def foo():
+    yield "bar"
 
-with get_db() as db:
-    db.query(...)
+with foo() as value:
+    assert value == "bar"
 
 # - Async support
 
 @dep()
-async def get_async_db():
-    db = await AsyncDatabase()
-    yield db
-    await db.close()
+async def foo():
+    yield "async_bar"
 
-async with get_async_db() as db:
-    await db.query(...)
+async with foo() as value:
+    assert value == "async_bar"
 
 # - Real-world example
 
