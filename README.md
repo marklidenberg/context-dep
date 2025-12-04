@@ -25,15 +25,15 @@ async def foo():
 async with foo() as value:
     assert value == "async_bar"
 
-# - Real-world example
+# - Real-world example (with caching for expensive resources)
 
-@dep()
+@dep(cached=True)
 def get_db():
     db = Database()
     yield db
     db.close()
 
-@dep()
+@dep(cached=True)
 def get_cache():
     cache = Redis()
     yield cache

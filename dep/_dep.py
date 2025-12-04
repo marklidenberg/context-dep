@@ -14,7 +14,7 @@ _cache: dict[Callable, Any] = {}
 _overrides: dict[Callable, Callable] = {}
 
 
-def dep(cached: bool = True):
+def dep(cached: bool = False):
     """
     Decorator for dependency injection with optional caching.
 
