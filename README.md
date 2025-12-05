@@ -56,11 +56,7 @@ def get_mock_db():
 override({get_db: get_mock_db})
 ```
 
-## Notes
-
-- Top-level dict arguments are converted to sorted tuples when computing cache keys (the actual values remain unchanged)
-
-## Recipe: Scopes
+## Recipe: scopes
 
 Pass scope information as function arguments to create separate cache instances for different contexts (session, thread, environment, etc.). 
 
@@ -74,3 +70,8 @@ def get_session_db(scope: dict):
 with get_session_db(scope={'env': 'test'}) as db:
     ...
 ```
+
+## Notes
+
+- Top-level dict arguments are converted to sorted tuples when computing cache keys
+
