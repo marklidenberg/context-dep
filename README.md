@@ -58,7 +58,7 @@ override({get_db: get_mock_db})
 
 ## Notes
 
-- Top-level dict args are converted to sorted tuples under the hood for caching
+- Top-level dict arguments are converted to sorted tuples when computing cache keys (the actual values remain unchanged)
 
 ## Recipe: Scopes
 
