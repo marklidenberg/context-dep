@@ -2,6 +2,18 @@
 
 Lightweight dependency injection for Python.
 
+## API Reference
+
+```python
+def dep(cached: bool = False):
+    """Decorator for dependency injection with optional caching."""
+    ...
+
+def override(mapping: dict[Callable, Callable]):
+    """Override dependency functions with new implementations."""
+    ...
+```
+
 ## Usage
 
 ```python

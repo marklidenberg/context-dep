@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import wraps
-from typing import Any, Callable, TypeVar, Generator, AsyncGenerator, overload
+from typing import Any, Callable, TypeVar, Generator, AsyncGenerator, Union
 from contextlib import contextmanager, asynccontextmanager
 import asyncio
 import inspect
@@ -21,21 +21,10 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
-@overload
-def dep(
-    cached: bool = False,
-) -> Callable[[Callable[..., Generator[T, None, None]]], Callable[..., "contextmanager[T]"]]: ...
-
-
-@overload
-def dep(
-    cached: bool = False,
-) -> Callable[
-    [Callable[..., AsyncGenerator[T, None]]], Callable[..., "asynccontextmanager[T]"]
-]: ...
-
-
-def dep(cached: bool = False):
+def dep(cached: bool = False) -> Callable[
+    [Union[Callable[..., Generator[T, None, None]], Callable[..., AsyncGenerator[T, None]]]],
+    Union[Callable[..., contextmanager[T]], Callable[..., asynccontextmanager[T]]]
+]:
     """
     Decorator for dependency injection with optional caching.
 
@@ -49,7 +38,7 @@ def dep(cached: bool = False):
         def sync_wrapper(*args, **kwargs) -> Generator[T, None, None]:
             # - Resolve target function
 
-            target_func = _overrides.get(func, default=func)
+            target_func = _overrides.get(func, func)
 
             # - Build cache key
 
@@ -74,6 +63,8 @@ def dep(cached: bool = False):
             except StopIteration:
                 raise RuntimeError(f"{func.__name__} did not yield a value")
 
+            # - Store in cache before yielding
+
             if cached:
                 _cache[cache_key] = result
 
@@ -86,11 +77,11 @@ def dep(cached: bool = False):
                     next(result_gen)
                 except StopIteration:
                     pass
+                finally:
+                    # - Remove from cache after cleanup (always runs, even on exception)
 
-                # - Remove from cache after cleanup
-
-                if cached and cache_key in _cache:
-                    del _cache[cache_key]
+                    if cached:
+                        _cache.pop(cache_key, None)
 
         @wraps(func)
         @asynccontextmanager
@@ -122,6 +113,8 @@ def dep(cached: bool = False):
             except StopAsyncIteration:
                 raise RuntimeError(f"{func.__name__} did not yield a value")
 
+            # - Store in cache before yielding
+
             if cached:
                 _cache[cache_key] = result
 
@@ -134,11 +127,11 @@ def dep(cached: bool = False):
                     await result_gen.__anext__()
                 except StopAsyncIteration:
                     pass
+                finally:
+                    # - Remove from cache after cleanup (always runs, even on exception)
 
-                # - Remove from cache after cleanup
-
-                if cached and cache_key in _cache:
-                    del _cache[cache_key]
+                    if cached:
+                        _cache.pop(cache_key, None)
 
         # - Determine wrapper type based on function type
 
