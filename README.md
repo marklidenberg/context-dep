@@ -22,19 +22,19 @@ from dep import dep, override
 # - Example
 
 @dep(cached=True)
-def get_db():
+async def get_db(): # works in both sync and async
     db = Database()
     yield db
     db.close()
 
 @dep(cached=True)
-def get_cache():
+async def get_cache():
     cache = Redis()
     yield cache
     cache.disconnect()
 
-def get_user(user_id: int):
-    with get_db() as db, get_cache() as cache:
+async def get_user(user_id: int):
+    async with get_db() as db, get_cache() as cache:
         if user := cache.get(user_id):
             return user
         user = db.query(user_id)
