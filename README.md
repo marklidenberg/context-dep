@@ -1,13 +1,13 @@
 # dep
 
-Remarkably simple Python dependency injection
+Lightweight dependency injection for Python.
 
 ## Usage
 
 ```python
 from dep import dep, override
 
-# - Basic example
+# - Example
 
 @dep()
 def foo():
