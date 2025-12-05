@@ -27,14 +27,8 @@ async def get_db():
     yield db
     db.close()
 
-@dep(cached=True)
-async def get_cache():
-    cache = Redis()
-    yield cache
-    cache.disconnect()
-
 async def get_user(user_id: int):
-    async with get_db() as db, get_cache() as cache:
+    async with get_db() as db:
         if user := cache.get(user_id):
             return user
         user = db.query(user_id)
