@@ -74,11 +74,23 @@ def dep(
         def sync_wrapper(*args, **kwargs) -> Generator[T, None, None]:
             # - Resolve target function
 
-            target_func = _resolve_function(func)
+            target_func = _resolve_function(sync_wrapper)
+            if target_func is not sync_wrapper:
+                # Wrapper is overridden, execute the override
+                result_gen = target_func(*args, **kwargs)
+                try:
+                    result = next(result_gen)
+                    yield result
+                finally:
+                    try:
+                        next(result_gen)
+                    except StopIteration:
+                        pass
+                return
 
             # - Build cache key
 
-            cache_key = f"{id(target_func)}:{cache_key_func(*args, **kwargs)}"
+            cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
 
             # - Check cache if enabled
 
@@ -88,7 +100,7 @@ def dep(
 
             # - Execute function and get result
 
-            result_gen = target_func(*args, **kwargs)
+            result_gen = func(*args, **kwargs)
 
             # - Extract yielded value
 
@@ -111,22 +123,34 @@ def dep(
                     next(result_gen)
                 except StopIteration:
                     pass
-                finally:
-                    # - Remove from cache after cleanup (always runs, even on exception)
 
-                    if cached:
-                        _cache.pop(cache_key, None)
+                # - Remove from cache after cleanup (always runs, even on exception)
+
+                if cached:
+                    _cache.pop(cache_key, None)
 
         @wraps(func)
         @asynccontextmanager
         async def async_wrapper(*args, **kwargs) -> AsyncGenerator[T, None]:
             # - Resolve target function
 
-            target_func = _resolve_function(func)
+            target_func = _resolve_function(async_wrapper)
+            if target_func is not async_wrapper:
+                # Wrapper is overridden, execute the override
+                result_gen = target_func(*args, **kwargs)
+                try:
+                    result = await result_gen.__anext__()
+                    yield result
+                finally:
+                    try:
+                        await result_gen.__anext__()
+                    except StopAsyncIteration:
+                        pass
+                return
 
             # - Build cache key
 
-            cache_key = f"{id(target_func)}:{cache_key_func(*args, **kwargs)}"
+            cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
 
             # - Check cache if enabled
 
@@ -136,7 +160,7 @@ def dep(
 
             # - Execute function and get result
 
-            result_gen = target_func(*args, **kwargs)
+            result_gen = func(*args, **kwargs)
 
             # - Extract yielded value
 
@@ -159,11 +183,11 @@ def dep(
                     await result_gen.__anext__()
                 except StopAsyncIteration:
                     pass
-                finally:
-                    # - Remove from cache after cleanup (always runs, even on exception)
 
-                    if cached:
-                        _cache.pop(cache_key, None)
+                # - Remove from cache after cleanup (always runs, even on exception)
+
+                if cached:
+                    _cache.pop(cache_key, None)
 
         # - Determine wrapper type based on function type
 
@@ -208,7 +232,23 @@ def test():
 
     asyncio.run(test_async())
 
-    # - Test context override
+    # - Test sync context override
+
+    @dep()
+    def get_foo():
+        yield "original"
+
+    def new_get_foo():
+        yield "overridden"
+
+    with context({get_foo: new_get_foo}):
+        with get_foo() as value:
+            assert value == "overridden"
+
+    with get_foo() as value:
+        assert value == "original"
+
+    # - Test async context override
 
     async def test_async_context():
         @dep()
