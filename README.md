@@ -1,6 +1,6 @@
 # dep
 
-Lightweight dependency injection for Python.
+Python dependency injection using context managers.
 
 ## Usage
 
