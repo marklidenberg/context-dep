@@ -56,6 +56,21 @@ class context:
 ```
 
 
+## Recipe: argument-scoped caching
+
+If you need separate cache instances, pass the scope info in as function arguments.
+
+```python
+from dep import dep
+
+@dep(cached=True)
+def get_session_db(env: str):
+    ...
+
+with get_session_db(env='test') as db:
+    ...
+```
+ 
 ## Notes
 
 - Works with both sync and async functions
