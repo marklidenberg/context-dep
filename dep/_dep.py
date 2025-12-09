@@ -10,193 +10,212 @@ import json
 
 T = TypeVar("T")
 
-# - Module-level state
 
-_cache: dict[str, Any] = {}
-_context_stack: ContextVar[list[dict[Callable, Callable]]] = ContextVar('_context_stack', default=[])
+class _Context:
+    """Context manager for dependency overrides."""
 
-
-def _resolve_function(func: Callable) -> Callable:
-    """Walk context stack from top to bottom, return first override found."""
-    stack = _context_stack.get()
-    for overrides in reversed(stack):
-        if func in overrides:
-            return overrides[func]
-    return func
-
-
-class context:
-    def __init__(self, overrides: dict[Callable, Callable]):
+    def __init__(self, overrides: dict[Callable, Callable], context_stack_var: ContextVar):
         self.overrides = overrides
+        self.context_stack_var = context_stack_var
         self.token = None
 
     def __enter__(self):
-        stack = _context_stack.get().copy()
+        stack = self.context_stack_var.get().copy()
         stack.append(self.overrides)
-        self.token = _context_stack.set(stack)
+        self.token = self.context_stack_var.set(stack)
         return self
 
     def __exit__(self, *args):
-        _context_stack.reset(self.token)
+        self.context_stack_var.reset(self.token)
 
     async def __aenter__(self):
-        stack = _context_stack.get().copy()
+        stack = self.context_stack_var.get().copy()
         stack.append(self.overrides)
-        self.token = _context_stack.set(stack)
+        self.token = self.context_stack_var.set(stack)
         return self
 
     async def __aexit__(self, *args):
-        _context_stack.reset(self.token)
+        self.context_stack_var.reset(self.token)
 
 
-def dep(
-    cached: bool = False,
-    cache_key_func: Callable[..., str] = lambda *args, **kwargs: json.dumps(
-        {"args": args, "kwargs": kwargs},
-        sort_keys=True,
-        default=str,
-    ),
-) -> Callable[
-    [Union[Callable[..., Generator[T, None, None]], Callable[..., AsyncGenerator[T, None]]]],
-    Union[Callable[..., contextmanager[T]], Callable[..., asynccontextmanager[T]]],
-]:
-    """
-    Decorator for defining dependencies.
+class Container:
+    """Dependency injection container."""
 
-    Args:
-        cached: If True, the result will be cached and reused for the duration of the context
-        cache_key_func: Function to generate cache keys from arguments. Defaults to JSON serialization with sorted keys.
-    """
+    def __init__(self):
+        self._cache: dict[str, Any] = {}
+        self._context_stack: ContextVar[list[dict[Callable, Callable]]] = ContextVar(
+            f'_context_stack_{id(self)}',
+            default=[]
+        )
 
-    def decorator(func: Callable[..., Generator[T, None, None]]) -> Callable[..., contextmanager[T]]:
-        @wraps(func)
-        @contextmanager
-        def sync_wrapper(*args, **kwargs) -> Generator[T, None, None]:
-            # - Resolve target function
+    def _resolve_function(self, func: Callable) -> Callable:
+        """Walk context stack from top to bottom, return first override found."""
+        stack = self._context_stack.get()
+        for overrides in reversed(stack):
+            if func in overrides:
+                return overrides[func]
+        return func
 
-            target_func = _resolve_function(sync_wrapper)
-            if target_func is not sync_wrapper:
-                # Wrapper is overridden, execute the override
-                result_gen = target_func(*args, **kwargs)
+    def context(self, overrides: dict[Callable, Callable]) -> _Context:
+        """Create a context manager for dependency overrides."""
+        return _Context(overrides, self._context_stack)
+
+    def dep(
+        self,
+        cached: bool = False,
+        cache_key_func: Callable[..., str] = lambda *args, **kwargs: json.dumps(
+            {"args": args, "kwargs": kwargs},
+            sort_keys=True,
+            default=str,
+        ),
+    ) -> Callable[
+        [Union[Callable[..., Generator[T, None, None]], Callable[..., AsyncGenerator[T, None]]]],
+        Union[Callable[..., contextmanager[T]], Callable[..., asynccontextmanager[T]]],
+    ]:
+        """
+        Decorator for defining dependencies.
+
+        Args:
+            cached: If True, the result will be cached and reused for the duration of the context
+            cache_key_func: Function to generate cache keys from arguments. Defaults to JSON serialization with sorted keys.
+        """
+
+        def decorator(func: Callable[..., Generator[T, None, None]]) -> Callable[..., contextmanager[T]]:
+            @wraps(func)
+            @contextmanager
+            def sync_wrapper(*args, **kwargs) -> Generator[T, None, None]:
+                # - Resolve target function
+
+                target_func = self._resolve_function(sync_wrapper)
+                if target_func is not sync_wrapper:
+                    # Wrapper is overridden, execute the override
+                    result_gen = target_func(*args, **kwargs)
+                    try:
+                        result = next(result_gen)
+                        yield result
+                    finally:
+                        try:
+                            next(result_gen)
+                        except StopIteration:
+                            pass
+                    return
+
+                # - Build cache key
+
+                cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
+
+                # - Check cache if enabled
+
+                if cached and cache_key in self._cache:
+                    yield self._cache[cache_key]
+                    return
+
+                # - Execute function and get result
+
+                result_gen = func(*args, **kwargs)
+
+                # - Extract yielded value
+
                 try:
                     result = next(result_gen)
+                except StopIteration:
+                    raise RuntimeError(f"{func.__name__} did not yield a value")
+
+                # - Store in cache before yielding
+
+                if cached:
+                    self._cache[cache_key] = result
+
+                try:
                     yield result
                 finally:
+                    # - Cleanup: run generator to completion
+
                     try:
                         next(result_gen)
                     except StopIteration:
                         pass
-                return
 
-            # - Build cache key
+                    # - Remove from cache after cleanup (always runs, even on exception)
 
-            cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
+                    if cached:
+                        self._cache.pop(cache_key, None)
 
-            # - Check cache if enabled
+            @wraps(func)
+            @asynccontextmanager
+            async def async_wrapper(*args, **kwargs) -> AsyncGenerator[T, None]:
+                # - Resolve target function
 
-            if cached and cache_key in _cache:
-                yield _cache[cache_key]
-                return
+                target_func = self._resolve_function(async_wrapper)
+                if target_func is not async_wrapper:
+                    # Wrapper is overridden, execute the override
+                    result_gen = target_func(*args, **kwargs)
+                    try:
+                        result = await result_gen.__anext__()
+                        yield result
+                    finally:
+                        try:
+                            await result_gen.__anext__()
+                        except StopAsyncIteration:
+                            pass
+                    return
 
-            # - Execute function and get result
+                # - Build cache key
 
-            result_gen = func(*args, **kwargs)
+                cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
 
-            # - Extract yielded value
+                # - Check cache if enabled
 
-            try:
-                result = next(result_gen)
-            except StopIteration:
-                raise RuntimeError(f"{func.__name__} did not yield a value")
+                if cached and cache_key in self._cache:
+                    yield self._cache[cache_key]
+                    return
 
-            # - Store in cache before yielding
+                # - Execute function and get result
 
-            if cached:
-                _cache[cache_key] = result
+                result_gen = func(*args, **kwargs)
 
-            try:
-                yield result
-            finally:
-                # - Cleanup: run generator to completion
+                # - Extract yielded value
 
-                try:
-                    next(result_gen)
-                except StopIteration:
-                    pass
-
-                # - Remove from cache after cleanup (always runs, even on exception)
-
-                if cached:
-                    _cache.pop(cache_key, None)
-
-        @wraps(func)
-        @asynccontextmanager
-        async def async_wrapper(*args, **kwargs) -> AsyncGenerator[T, None]:
-            # - Resolve target function
-
-            target_func = _resolve_function(async_wrapper)
-            if target_func is not async_wrapper:
-                # Wrapper is overridden, execute the override
-                result_gen = target_func(*args, **kwargs)
                 try:
                     result = await result_gen.__anext__()
+                except StopAsyncIteration:
+                    raise RuntimeError(f"{func.__name__} did not yield a value")
+
+                # - Store in cache before yielding
+
+                if cached:
+                    self._cache[cache_key] = result
+
+                try:
                     yield result
                 finally:
+                    # - Cleanup: run generator to completion
+
                     try:
                         await result_gen.__anext__()
                     except StopAsyncIteration:
                         pass
-                return
 
-            # - Build cache key
+                    # - Remove from cache after cleanup (always runs, even on exception)
 
-            cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
+                    if cached:
+                        self._cache.pop(cache_key, None)
 
-            # - Check cache if enabled
+            # - Determine wrapper type based on function type
 
-            if cached and cache_key in _cache:
-                yield _cache[cache_key]
-                return
+            if asyncio.iscoroutinefunction(func) or inspect.isasyncgenfunction(func):
+                return async_wrapper
+            else:
+                return sync_wrapper
 
-            # - Execute function and get result
+        return decorator
 
-            result_gen = func(*args, **kwargs)
 
-            # - Extract yielded value
+# - Default global container instance
 
-            try:
-                result = await result_gen.__anext__()
-            except StopAsyncIteration:
-                raise RuntimeError(f"{func.__name__} did not yield a value")
-
-            # - Store in cache before yielding
-
-            if cached:
-                _cache[cache_key] = result
-
-            try:
-                yield result
-            finally:
-                # - Cleanup: run generator to completion
-
-                try:
-                    await result_gen.__anext__()
-                except StopAsyncIteration:
-                    pass
-
-                # - Remove from cache after cleanup (always runs, even on exception)
-
-                if cached:
-                    _cache.pop(cache_key, None)
-
-        # - Determine wrapper type based on function type
-
-        if asyncio.iscoroutinefunction(func) or inspect.isasyncgenfunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
-
-    return decorator
+_default_container = Container()
+dep = _default_container.dep
+context = _default_container.context
 
 
 def test():
