@@ -29,6 +29,22 @@ async with context({get_db: get_mock_db}):
         ...
 ```
 
+
+## Recipe: argument-scoped caching
+
+If you need separate cache instances, pass the scope info in as function arguments.
+
+```python
+from dep import dep
+
+@dep(cached=True)
+def get_session_db(env: str):
+    ...
+
+with get_session_db(env='test') as db:
+    ...
+```
+
 ## API Reference
 
 ```python
@@ -53,24 +69,17 @@ def dep(
 class context:
     """Context manager to scope dependencies"""
     def __init__(self, overrides: dict[Callable, Callable]): ...
+
+class Container:
+    """
+    Dependency injection container.
+
+    By default, `dep` and `context` use a shared global container. Create separate containers for isolation (e.g., testing, multi-tenancy)
+    """
+    def dep(self, cached: bool = False, cache_key_func = ...): ...
+    def context(self, overrides: dict[Callable, Callable]): ...
 ```
 
-
-## Recipe: argument-scoped caching
-
-If you need separate cache instances, pass the scope info in as function arguments.
-
-```python
-from dep import dep
-
-@dep(cached=True)
-def get_session_db(env: str):
-    ...
-
-with get_session_db(env='test') as db:
-    ...
-```
- 
 ## Notes
 
 - Works with both sync and async functions

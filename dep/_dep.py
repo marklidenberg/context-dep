@@ -39,7 +39,7 @@ class _Context:
 
 
 class Container:
-    """Dependency injection container."""
+    """ Dependency injection container. By default, `dep` and `context` use a shared global container. Create separate containers for isolation (e.g., testing, multi-tenancy)"""
 
     def __init__(self):
         self._cache: dict[str, Any] = {}
