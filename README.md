@@ -61,20 +61,6 @@ with get_db() as db:
 # Cleanup runs once when the outermost context exits
 ```
 
-## Container
-
-```
-class Container:
-    """
-    Dependency injection container, stores the cache and overrides
-
-    By default, `dep` and `context` use a shared global container. 
-    Create separate containers for isolation (e.g., testing, multi-tenancy)
-    """
-    def dep(self, cached: bool = False, cache_key_func = ...): ...
-    def context(self, overrides: dict[Callable, Callable]): ...
-```
-
 ## Notes
 
 - Works with both sync and async functions
