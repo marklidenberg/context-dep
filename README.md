@@ -87,7 +87,7 @@ class context:
 
 class Container:
     """
-    Dependency injection container.
+    Dependency injection container, stores the cache and overrides
 
     By default, `dep` and `context` use a shared global container. 
     Create separate containers for isolation (e.g., testing, multi-tenancy)
