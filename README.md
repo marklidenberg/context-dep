@@ -15,13 +15,8 @@ async def get_db():
     yield db
     db.close()
 
-async def get_user(user_id: int):
-    async with get_db() as db:
-        if user := cache.get(user_id):
-            return user
-        user = db.query(user_id)
-        cache.set(user_id, user)
-        return user
+async with get_db() as db:
+    ...
 
 # - Override with context
 
