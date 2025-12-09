@@ -44,8 +44,7 @@ class Container:
     def __init__(self):
         self._cache: dict[str, Any] = {}
         self._context_stack: ContextVar[list[dict[Callable, Callable]]] = ContextVar(
-            f'_context_stack_{id(self)}',
-            default=[]
+            f"_context_stack_{id(self)}", default=[]
         )
 
     def _resolve_function(self, func: Callable) -> Callable:
@@ -102,7 +101,7 @@ class Container:
 
                 # - Build cache key
 
-                cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
+                cache_key = f"{func.__module__}.{func.__qualname__}:{cache_key_func(*args, **kwargs)}"
 
                 # - Check cache if enabled
 
@@ -162,7 +161,7 @@ class Container:
 
                 # - Build cache key
 
-                cache_key = f"{id(func)}:{cache_key_func(*args, **kwargs)}"
+                cache_key = f"{func.__module__}.{func.__qualname__}:{cache_key_func(*args, **kwargs)}"
 
                 # - Check cache if enabled
 
