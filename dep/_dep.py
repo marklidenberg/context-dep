@@ -1,0 +1,290 @@
+from __future__ import annotations
+
+from functools import wraps
+from typing import Any, Callable, TypeVar, Generator, AsyncGenerator, Union
+from contextlib import contextmanager, asynccontextmanager
+from contextvars import ContextVar
+import asyncio
+import inspect
+import json
+
+T = TypeVar("T")
+
+
+class _Context:
+    """Context manager for dependency overrides."""
+
+    def __init__(self, overrides: dict[Callable, Callable], context_stack_var: ContextVar):
+        self.overrides = overrides
+        self.context_stack_var = context_stack_var
+        self.token = None
+
+    def __enter__(self):
+        stack = self.context_stack_var.get().copy()
+        stack.append(self.overrides)
+        self.token = self.context_stack_var.set(stack)
+        return self
+
+    def __exit__(self, *args):
+        self.context_stack_var.reset(self.token)
+
+    async def __aenter__(self):
+        stack = self.context_stack_var.get().copy()
+        stack.append(self.overrides)
+        self.token = self.context_stack_var.set(stack)
+        return self
+
+    async def __aexit__(self, *args):
+        self.context_stack_var.reset(self.token)
+
+
+class Container:
+    """ Dependency injection container. By default, `dep` and `context` use a shared global container. Create separate containers for isolation (e.g., testing, multi-tenancy)"""
+
+    def __init__(self):
+        self._cache: dict[str, Any] = {}
+        self._context_stack: ContextVar[list[dict[Callable, Callable]]] = ContextVar(
+            f"_context_stack_{id(self)}", default=[]
+        )
+
+    def _resolve_function(self, func: Callable) -> Callable:
+        """Walk context stack from top to bottom, return first override found."""
+        stack = self._context_stack.get()
+        for overrides in reversed(stack):
+            if func in overrides:
+                return overrides[func]
+        return func
+
+    def context(self, overrides: dict[Callable, Callable]) -> _Context:
+        """Create a context manager for dependency overrides."""
+        return _Context(overrides, self._context_stack)
+
+    def dep(
+        self,
+        cached: bool = False,
+        cache_key_func: Callable[..., str] = lambda *args, **kwargs: json.dumps(
+            {"args": args, "kwargs": kwargs},
+            sort_keys=True,
+            default=str,
+        ),
+    ) -> Callable[
+        [Union[Callable[..., Generator[T, None, None]], Callable[..., AsyncGenerator[T, None]]]],
+        Union[Callable[..., contextmanager[T]], Callable[..., asynccontextmanager[T]]],
+    ]:
+        """
+        Decorator for defining dependencies.
+
+        Args:
+            cached: If True, the dependency is reused within nested calls
+            cache_key_func: Function to generate cache keys from arguments. Defaults to JSON serialization with sorted keys.
+        """
+
+        def decorator(func: Callable[..., Generator[T, None, None]]) -> Callable[..., contextmanager[T]]:
+            @wraps(func)
+            @contextmanager
+            def sync_wrapper(*args, **kwargs) -> Generator[T, None, None]:
+                # - Resolve target function
+
+                target_func = self._resolve_function(sync_wrapper)
+                if target_func is not sync_wrapper:
+                    # Wrapper is overridden, execute the override
+                    result_gen = target_func(*args, **kwargs)
+                    try:
+                        result = next(result_gen)
+                        yield result
+                    finally:
+                        try:
+                            next(result_gen)
+                        except StopIteration:
+                            pass
+                    return
+
+                # - Build cache key
+
+                cache_key = f"{func.__module__}.{func.__qualname__}:{cache_key_func(*args, **kwargs)}"
+
+                # - Check cache if enabled
+
+                if cached and cache_key in self._cache:
+                    yield self._cache[cache_key]
+                    return
+
+                # - Execute function and get result
+
+                result_gen = func(*args, **kwargs)
+
+                # - Extract yielded value
+
+                try:
+                    result = next(result_gen)
+                except StopIteration:
+                    raise RuntimeError(f"{func.__name__} did not yield a value")
+
+                # - Store in cache before yielding
+
+                if cached:
+                    self._cache[cache_key] = result
+
+                try:
+                    yield result
+                finally:
+                    # - Cleanup: run generator to completion
+
+                    try:
+                        next(result_gen)
+                    except StopIteration:
+                        pass
+
+                    # - Remove from cache after cleanup (always runs, even on exception)
+
+                    if cached:
+                        self._cache.pop(cache_key, None)
+
+            @wraps(func)
+            @asynccontextmanager
+            async def async_wrapper(*args, **kwargs) -> AsyncGenerator[T, None]:
+                # - Resolve target function
+
+                target_func = self._resolve_function(async_wrapper)
+                if target_func is not async_wrapper:
+                    # Wrapper is overridden, execute the override
+                    result_gen = target_func(*args, **kwargs)
+                    try:
+                        result = await result_gen.__anext__()
+                        yield result
+                    finally:
+                        try:
+                            await result_gen.__anext__()
+                        except StopAsyncIteration:
+                            pass
+                    return
+
+                # - Build cache key
+
+                cache_key = f"{func.__module__}.{func.__qualname__}:{cache_key_func(*args, **kwargs)}"
+
+                # - Check cache if enabled
+
+                if cached and cache_key in self._cache:
+                    yield self._cache[cache_key]
+                    return
+
+                # - Execute function and get result
+
+                result_gen = func(*args, **kwargs)
+
+                # - Extract yielded value
+
+                try:
+                    result = await result_gen.__anext__()
+                except StopAsyncIteration:
+                    raise RuntimeError(f"{func.__name__} did not yield a value")
+
+                # - Store in cache before yielding
+
+                if cached:
+                    self._cache[cache_key] = result
+
+                try:
+                    yield result
+                finally:
+                    # - Cleanup: run generator to completion
+
+                    try:
+                        await result_gen.__anext__()
+                    except StopAsyncIteration:
+                        pass
+
+                    # - Remove from cache after cleanup (always runs, even on exception)
+
+                    if cached:
+                        self._cache.pop(cache_key, None)
+
+            # - Determine wrapper type based on function type
+
+            if asyncio.iscoroutinefunction(func) or inspect.isasyncgenfunction(func):
+                return async_wrapper
+            else:
+                return sync_wrapper
+
+        return decorator
+
+
+# - Default global container instance
+
+_default_container = Container()
+dep = _default_container.dep
+context = _default_container.context
+
+
+def test():
+    # - Test sync dependency with caching
+
+    @dep()
+    def get_value(x: str):
+        yield x
+
+    with get_value("test") as value:
+        assert value == "test"
+
+    # - Test sync dependency without caching
+
+    @dep(cached=False)
+    def get_value_no_cache(x: str):
+        yield x * 2
+
+    with get_value_no_cache("test") as value:
+        assert value == "testtest"
+
+    # - Test async dependency with caching
+
+    async def test_async():
+        @dep(cached=True)
+        async def get_async_value(x: str):
+            yield x
+
+        async with get_async_value("async_test") as value:
+            assert value == "async_test"
+
+    import asyncio
+
+    asyncio.run(test_async())
+
+    # - Test sync context override
+
+    @dep()
+    def get_foo():
+        yield "original"
+
+    def new_get_foo():
+        yield "overridden"
+
+    with context({get_foo: new_get_foo}):
+        with get_foo() as value:
+            assert value == "overridden"
+
+    with get_foo() as value:
+        assert value == "original"
+
+    # - Test async context override
+
+    async def test_async_context():
+        @dep()
+        async def get_bar():
+            yield "original"
+
+        async def new_get_bar():
+            yield "overridden"
+
+        async with context({get_bar: new_get_bar}):
+            async with get_bar() as value:
+                assert value == "overridden"
+
+        async with get_bar() as value:
+            assert value == "original"
+
+    asyncio.run(test_async_context())
+
+
+if __name__ == "__main__":
+    test()
