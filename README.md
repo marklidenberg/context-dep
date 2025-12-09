@@ -34,21 +34,6 @@ async with context({get_db: get_mock_db}):
         ...
 ```
 
-## Recipe: Scopes
-
-Pass scope information as function arguments to create separate cache instances for different contexts (session, thread, environment, etc.).
-
-```python
-from dep import dep
-
-@dep(cached=True)
-def get_session_db(scope: dict):
-    ...
-
-with get_session_db(scope={'env': 'test'}) as db:
-    ...
-```
- 
 ## API Reference
 
 ```python
