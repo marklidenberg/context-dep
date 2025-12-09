@@ -40,6 +40,7 @@ def get_session_db(env: str):
     ...
 
 with get_session_db(env='test') as db:
+    # separate cache for each environment
     ...
 ```
 
