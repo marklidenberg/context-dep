@@ -28,7 +28,7 @@ def my_func():
 
 ## Overrides
 
-```
+```python
 @dep()
 def get_mock_db():
     yield MockDatabase()
