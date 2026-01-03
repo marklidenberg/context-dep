@@ -15,7 +15,6 @@ pip install context-dep
 ```python
 from context_dep import dep, context
 
-
 @dep(cached=True)
 def get_db():
     db = Database()
