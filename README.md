@@ -5,13 +5,13 @@ Python dependency injection using context managers.
 ## Installation
 
 ```bash
-pip install "git+https://github.com/marklidenberg/dep.git"
+pip install context-dep
 ```
 
 ## Usage
 
 ```python
-from dep import dep, context
+from context_dep import dep, context
 
 # - Define dependencies
 
@@ -39,7 +39,7 @@ async with context({get_db: get_mock_db}):
 ## Recipe: argument-scoped caching
 
 ```python
-from dep import dep
+from context_dep import dep
 
 @dep(cached=True)
 def get_session_db(env: str):
