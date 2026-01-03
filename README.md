@@ -1,40 +1,42 @@
-# dep
+# context-dep
 
-Python dependency injection using context managers.
+Python dependency injection with minimal API using context managers. Works as DI for any Python code, including frameworks like FastAPI. Use it for configs, clients, db sessions, contexts, loggers, etc.
 
-## Installation
+Instead of passing the same stuff (database, config, API clients, current user) into every function, your code can grab it when needed — it’s reused for the duration of the work, cleaned up afterward, and easy to replace with fakes in tests from one place.
 
 ```bash
 pip install context-dep
 ```
 
-## Usage
+## Basic usage
 
 ```python
 from context_dep import dep, context
 
-# - Define dependencies
 
 @dep(cached=True)
-async def get_db():
+def get_db():
     db = Database()
     yield db
     db.close()
 
-async with get_db() as db:
-    ...
+def my_func():
+    with get_db() as db:
+        ...
+```
 
-# - Override with context
+## Overrides
 
+```
 @dep()
 def get_mock_db():
     yield MockDatabase()
 
-async with context({get_db: get_mock_db}):
-    async with get_db() as db:
-        ...
-```
+def main():
+    with context({get_db: get_mock_db}):
+        my_func()
 
+```
 
 ## Recipe: argument-scoped caching
 
@@ -48,6 +50,18 @@ def get_session_db(env: str):
 with get_session_db(env='test') as db:
     # separate cache for each environment
     ...
+```
+
+## Recipe: stub dependency for later injection
+
+```python
+@dep()
+async def get_db():
+    raise NotImplementedError
+
+async with get_db() as db:
+    ...
+
 ```
 
 ## Cache Lifetime

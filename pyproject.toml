@@ -1,7 +1,7 @@
 [project]
-name = "dep"
-version = "0.0.1"
-description = "Dependency injection using context managers"
+name = "context-dep"
+version = "0.1.0"
+description = "Python dependency injection with minimal API using context managers"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [
